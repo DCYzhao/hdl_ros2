@@ -1,149 +1,90 @@
 cmake_minimum_required(VERSION 3.16)
 project(ndt_omp)
 
-add_definitions(-std=c++14)
-set(CMAKE_CXX_FLAGS "-std=c++14")
+# 设置C++标准
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Compile flags for SIMD instructions
-if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64")
-  # For x86_64 architecture, SIMD instruction set is fixed below versions,
+# 设置构建类型
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# 编译优化选项
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  add_compile_options(-O3 -DNDEBUG)
+endif()
+
+# SIMD指令编译选项
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   add_compile_options(-msse -msse2 -msse3 -msse4 -msse4.1 -msse4.2)
-else()
-  # For other architecture, like arm64, compile flags are generally prepared by compiler
-  # march=native is disabled as default for specific depending pcl libraries
-  # or pre-building packages for other computers.
-  if(BUILD_WITH_MARCH_NATIVE)
-    add_compile_options(-march=native)
-  endif()
+elseif(BUILD_WITH_MARCH_NATIVE)
+  add_compile_options(-march=native)
 endif()
 
-# pcl 1.7 causes a segfault when it is built with debug mode
-set(CMAKE_BUILD_TYPE "RELEASE")
-
-if($ENV{ROS_VERSION} EQUAL 1)
-# ROS1
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  pcl_ros
-)
-
-find_package(PCL 1.7 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
-
-message(STATUS "PCL_INCLUDE_DIRS:" ${PCL_INCLUDE_DIRS})
-message(STATUS "PCL_LIBRARY_DIRS:" ${PCL_LIBRARY_DIRS})
-message(STATUS "PCL_DEFINITIONS:" ${PCL_DEFINITIONS})
-
-find_package(OpenMP)
-if (OPENMP_FOUND)
-    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-endif()
-
-###################################
-## catkin specific configuration ##
-###################################
-catkin_package(
-  INCLUDE_DIRS include
-  LIBRARIES ndt_omp
-)
-
-###########
-## Build ##
-###########
-# include_directories(include)
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-)
-
-add_library(ndt_omp
-  src/pclomp/voxel_grid_covariance_omp.cpp
-  src/pclomp/ndt_omp.cpp
-  src/pclomp/gicp_omp.cpp
-)
-
-add_executable(align
-  apps/align.cpp
-)
-add_dependencies(align
-  ndt_omp
-)
-target_link_libraries(align
-  ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-  ndt_omp
-)
-
-#############
-## INSTALL ##
-#############
-
-install(
-  TARGETS
-    ndt_omp
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-)
-
-# install headers
-install(DIRECTORY include/pclomp
-        DESTINATION ${CATKIN_GLOBAL_INCLUDE_DESTINATION})
-else()
-
-# ROS2
-find_package(ament_cmake_auto REQUIRED)
-ament_auto_find_build_dependencies()
-
-find_package(PCL 1.7 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
-
-message(STATUS "PCL_INCLUDE_DIRS:" ${PCL_INCLUDE_DIRS})
-message(STATUS "PCL_LIBRARY_DIRS:" ${PCL_LIBRARY_DIRS})
-message(STATUS "PCL_DEFINITIONS:" ${PCL_DEFINITIONS})
-
+# 查找依赖包
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(PCL 1.7 REQUIRED COMPONENTS common io filters registration kdtree segmentation visualization)
 find_package(OpenMP REQUIRED)
 
-###########
-## Build ##
-###########
+# 打印调试信息
+message(STATUS "PCL_INCLUDE_DIRS: ${PCL_INCLUDE_DIRS}")
+message(STATUS "PCL_LIBRARY_DIRS: ${PCL_LIBRARY_DIRS}")
+message(STATUS "PCL_DEFINITIONS: ${PCL_DEFINITIONS}")
+message(STATUS "OpenMP found: ${OpenMP_CXX_FOUND}")
 
-ament_auto_add_library(ndt_omp SHARED
+# 创建主库
+add_library(ndt_omp SHARED
   src/pclomp/voxel_grid_covariance_omp.cpp
   src/pclomp/ndt_omp.cpp
   src/pclomp/gicp_omp.cpp
 )
 
-target_link_libraries(ndt_omp ${PCL_LIBRARIES})
+# 设置目标属性
+target_compile_features(ndt_omp PRIVATE cxx_std_14)
 
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(ndt_omp OpenMP::OpenMP_CXX)
-else()
-  message(WARNING "OpenMP not found")
-endif()
-
-#############################
-## ROS 2 multigrid ndt_omp ##
-#############################
-ament_auto_add_library(multigrid_ndt_omp SHARED
-  src/multigrid_pclomp/multi_voxel_grid_covariance_omp.cpp
-  src/multigrid_pclomp/multigrid_ndt_omp.cpp
+# 包含目录
+target_include_directories(ndt_omp PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${PCL_INCLUDE_DIRS}
 )
-target_link_libraries(multigrid_ndt_omp ${PCL_LIBRARIES})
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(multigrid_ndt_omp OpenMP::OpenMP_CXX)
-else()
-  message(WARNING "OpenMP not found")
-endif()
-###################################
-## ROS 2 multigrid ndt_omp (end) ##
-###################################
 
-ament_auto_package(USE_SCOPED_HEADER_INSTALL_DIR)
+# 链接库
+target_link_libraries(ndt_omp PUBLIC
+  ${PCL_LIBRARIES}
+  OpenMP::OpenMP_CXX
+)
 
-endif()
+# 添加可执行文件（如果需要）
+add_executable(align apps/align.cpp)
+ament_target_dependencies(align rclcpp)
+target_link_libraries(align 
+  ndt_omp
+  ${PCL_LIBRARIES}
+)
+install(TARGETS align
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+# 安装规则
+install(TARGETS ndt_omp
+  EXPORT ndt_omp_targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+# 安装头文件
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+# 导出依赖
+ament_export_include_directories(include)
+ament_export_libraries(ndt_omp)
+ament_export_dependencies(rclcpp PCL OpenMP)
+
+ament_package()

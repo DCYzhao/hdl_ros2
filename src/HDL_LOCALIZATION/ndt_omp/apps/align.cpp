@@ -1,39 +1,129 @@
-#include <iostream>
-#include <ros/ros.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
-#include <pcl/registration/ndt.h>
-#include <pcl/registration/gicp.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/registration/gicp.h>
+#include <pcl/registration/ndt.h>
 #include <pcl/visualization/pcl_visualizer.h>
-
-#include <pclomp/ndt_omp.h>
 #include <pclomp/gicp_omp.h>
+#include <pclomp/ndt_omp.h>
+
+#include <chrono>
+#include <iostream>
+#include <rclcpp/rclcpp.hpp>
 
 // align point clouds and measure processing time
-pcl::PointCloud<pcl::PointXYZ>::Ptr align(pcl::Registration<pcl::PointXYZ, pcl::PointXYZ>::Ptr registration, const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_cloud, const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_cloud) {
+pcl::PointCloud<pcl::PointXYZ>::Ptr align(pcl::Registration<pcl::PointXYZ, pcl::PointXYZ>::Ptr registration,
+                                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& target_cloud,
+                                          const pcl::PointCloud<pcl::PointXYZ>::Ptr& source_cloud) {
   registration->setInputTarget(target_cloud);
   registration->setInputSource(source_cloud);
   pcl::PointCloud<pcl::PointXYZ>::Ptr aligned(new pcl::PointCloud<pcl::PointXYZ>());
 
-  auto t1 = ros::WallTime::now();
+  auto t1 = std::chrono::high_resolution_clock::now();
   registration->align(*aligned);
-  auto t2 = ros::WallTime::now();
-  std::cout << "single : " << (t2 - t1).toSec() * 1000 << "[msec]" << std::endl;
+  auto t2 = std::chrono::high_resolution_clock::now();
+  auto single_time = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+  std::cout << "single : " << single_time << "[msec]" << std::endl;
 
-  for(int i = 0; i < 10; i++) {
+  for (int i = 0; i < 10; i++) {
     registration->align(*aligned);
   }
-  auto t3 = ros::WallTime::now();
-  std::cout << "10times: " << (t3 - t2).toSec() * 1000 << "[msec]" << std::endl;
+  auto t3 = std::chrono::high_resolution_clock::now();
+  auto multi_time = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+  std::cout << "10times: " << multi_time << "[msec]" << std::endl;
   std::cout << "fitness: " << registration->getFitnessScore() << std::endl << std::endl;
 
   return aligned;
 }
 
+class PointCloudAlign : public rclcpp::Node {
+ public:
+  PointCloudAlign() : Node("pointcloud_align") {
+    // 可以通过ROS2参数来设置输入文件，或者保持命令行参数
+  }
+
+  void run(const std::string& target_pcd, const std::string& source_pcd) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr target_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+
+    if (pcl::io::loadPCDFile(target_pcd, *target_cloud)) {
+      RCLCPP_ERROR(this->get_logger(), "failed to load %s", target_pcd.c_str());
+      return;
+    }
+    if (pcl::io::loadPCDFile(source_pcd, *source_cloud)) {
+      RCLCPP_ERROR(this->get_logger(), "failed to load %s", source_pcd.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(this->get_logger(), "loaded target: %ld points", target_cloud->size());
+    RCLCPP_INFO(this->get_logger(), "loaded source: %ld points", source_cloud->size());
+
+    // downsampling
+    pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZ>());
+
+    pcl::VoxelGrid<pcl::PointXYZ> voxelgrid;
+    voxelgrid.setLeafSize(0.1f, 0.1f, 0.1f);
+
+    voxelgrid.setInputCloud(target_cloud);
+    voxelgrid.filter(*downsampled);
+    *target_cloud = *downsampled;
+
+    voxelgrid.setInputCloud(source_cloud);
+    voxelgrid.filter(*downsampled);
+    source_cloud = downsampled;
+
+    RCLCPP_INFO(this->get_logger(), "after downsampling target: %ld points", target_cloud->size());
+    RCLCPP_INFO(this->get_logger(), "after downsampling source: %ld points", source_cloud->size());
+
+    // benchmark
+    std::cout << "--- pcl::GICP ---" << std::endl;
+    pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr gicp(
+        new pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr aligned = align(gicp, target_cloud, source_cloud);
+
+    std::cout << "--- pclomp::GICP ---" << std::endl;
+    pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr gicp_omp(
+        new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>());
+    aligned = align(gicp_omp, target_cloud, source_cloud);
+
+    std::cout << "--- pcl::NDT ---" << std::endl;
+    pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>::Ptr ndt(
+        new pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>());
+    ndt->setResolution(1.0);
+    aligned = align(ndt, target_cloud, source_cloud);
+
+    std::vector<int> num_threads = {1, omp_get_max_threads()};
+    std::vector<std::pair<std::string, pclomp::NeighborSearchMethod>> search_methods = {
+        {"KDTREE", pclomp::KDTREE}, {"DIRECT7", pclomp::DIRECT7}, {"DIRECT1", pclomp::DIRECT1}};
+
+    pclomp::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>::Ptr ndt_omp(
+        new pclomp::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>());
+    ndt_omp->setResolution(1.0);
+
+    for (int n : num_threads) {
+      for (const auto& search_method : search_methods) {
+        std::cout << "--- pclomp::NDT (" << search_method.first << ", " << n << " threads) ---" << std::endl;
+        ndt_omp->setNumThreads(n);
+        ndt_omp->setNeighborhoodSearchMethod(search_method.second);
+        aligned = align(ndt_omp, target_cloud, source_cloud);
+      }
+    }
+
+    // visualization
+    pcl::visualization::PCLVisualizer vis("vis");
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> target_handler(target_cloud, 255.0, 0.0, 0.0);
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> source_handler(source_cloud, 0.0, 255.0, 0.0);
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> aligned_handler(aligned, 0.0, 0.0, 255.0);
+    vis.addPointCloud(target_cloud, target_handler, "target");
+    vis.addPointCloud(source_cloud, source_handler, "source");
+    vis.addPointCloud(aligned, aligned_handler, "aligned");
+    vis.spin();
+  }
+};
+
 int main(int argc, char** argv) {
-  if(argc != 3) {
+  if (argc != 3) {
     std::cout << "usage: align target.pcd source.pcd" << std::endl;
     return 0;
   }
@@ -41,72 +131,12 @@ int main(int argc, char** argv) {
   std::string target_pcd = argv[1];
   std::string source_pcd = argv[2];
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr target_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-  pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+  // 初始化ROS2
+  rclcpp::init(argc, argv);
 
-  if(pcl::io::loadPCDFile(target_pcd, *target_cloud)) {
-    std::cerr << "failed to load " << target_pcd << std::endl;
-    return 0;
-  }
-  if(pcl::io::loadPCDFile(source_pcd, *source_cloud)) {
-    std::cerr << "failed to load " << source_pcd << std::endl;
-    return 0;
-  }
+  auto node = std::make_shared<PointCloudAlign>();
+  node->run(target_pcd, source_pcd);
 
-  // downsampling
-  pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled(new pcl::PointCloud<pcl::PointXYZ>());
-
-  pcl::VoxelGrid<pcl::PointXYZ> voxelgrid;
-  voxelgrid.setLeafSize(0.1f, 0.1f, 0.1f);
-
-  voxelgrid.setInputCloud(target_cloud);
-  voxelgrid.filter(*downsampled);
-  *target_cloud = *downsampled;
-
-  voxelgrid.setInputCloud(source_cloud);
-  voxelgrid.filter(*downsampled);
-  source_cloud = downsampled;
-
-  ros::Time::init();
-
-  // benchmark
-  std::cout << "--- pcl::GICP ---" << std::endl;
-  pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr gicp(new pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>());
-  pcl::PointCloud<pcl::PointXYZ>::Ptr aligned = align(gicp, target_cloud, source_cloud);
-
-  std::cout << "--- pclomp::GICP ---" << std::endl;
-  pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr gicp_omp(new pclomp::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>());
-  aligned = align(gicp_omp, target_cloud, source_cloud);
-
-  std::cout << "--- pcl::NDT ---" << std::endl;
-  pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>::Ptr ndt(new pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>());
-  ndt->setResolution(1.0);
-  aligned = align(ndt, target_cloud, source_cloud);
-
-  std::vector<int> num_threads = {1, omp_get_max_threads()};
-  std::vector<std::pair<std::string, pclomp::NeighborSearchMethod>> search_methods = {{"KDTREE", pclomp::KDTREE}, {"DIRECT7", pclomp::DIRECT7}, {"DIRECT1", pclomp::DIRECT1}};
-
-  pclomp::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>::Ptr ndt_omp(new pclomp::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ>());
-  ndt_omp->setResolution(1.0);
-
-  for(int n : num_threads) {
-    for(const auto& search_method : search_methods) {
-      std::cout << "--- pclomp::NDT (" << search_method.first << ", " << n << " threads) ---" << std::endl;
-      ndt_omp->setNumThreads(n);
-      ndt_omp->setNeighborhoodSearchMethod(search_method.second);
-      aligned = align(ndt_omp, target_cloud, source_cloud);
-    }
-  }
-
-  // visualization
-  pcl::visualization::PCLVisualizer vis("vis");
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> target_handler(target_cloud, 255.0, 0.0, 0.0);
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> source_handler(source_cloud, 0.0, 255.0, 0.0);
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> aligned_handler(aligned, 0.0, 0.0, 255.0);
-  vis.addPointCloud(target_cloud, target_handler, "target");
-  vis.addPointCloud(source_cloud, source_handler, "source");
-  vis.addPointCloud(aligned, aligned_handler, "aligned");
-  vis.spin();
-
+  rclcpp::shutdown();
   return 0;
 }
