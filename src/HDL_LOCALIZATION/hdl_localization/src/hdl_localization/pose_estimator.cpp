@@ -1,8 +1,8 @@
-#include <hdl_localization/pose_estimator.hpp>
-
 #include <pcl/filters/voxel_grid.h>
-#include <hdl_localization/pose_system.hpp>
+
 #include <hdl_localization/odom_system.hpp>
+#include <hdl_localization/pose_estimator.hpp>
+#include <hdl_localization/pose_system.hpp>
 #include <kkl/alg/unscented_kalman_filter.hpp>
 
 namespace hdl_localization {
@@ -15,9 +15,9 @@ namespace hdl_localization {
  * @param quat                initial orientation
  * @param cool_time_duration  during "cool time", prediction is not performed
  */
-PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const rclcpp::Time& stamp, const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, double cool_time_duration)
+PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registration, const rclcpp::Time& stamp,
+                             const Eigen::Vector3f& pos, const Eigen::Quaternionf& quat, double cool_time_duration)
     : init_stamp(stamp), registration(registration), cool_time_duration(cool_time_duration) {
-
   prev_stamp = rclcpp::Time((int64_t)0, init_stamp.get_clock_type());
   last_observation = Eigen::Matrix4f::Identity();
   last_observation.block<3, 3>(0, 0) = quat.toRotationMatrix();
@@ -44,7 +44,8 @@ PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registratio
   Eigen::MatrixXf cov = Eigen::MatrixXf::Identity(16, 16) * 0.01;
 
   PoseSystem system;
-  ukf.reset(new kkl::alg::UnscentedKalmanFilterX<float, PoseSystem>(system, 16, 6, 7, process_noise, measurement_noise, mean, cov));
+  ukf.reset(new kkl::alg::UnscentedKalmanFilterX<float, PoseSystem>(system, 16, 6, 7, process_noise, measurement_noise,
+                                                                    mean, cov));
 }
 
 PoseEstimator::~PoseEstimator() {}
@@ -56,7 +57,8 @@ PoseEstimator::~PoseEstimator() {}
  * @param gyro     angular velocity
  */
 void PoseEstimator::predict(const rclcpp::Time& stamp) {
-  if ((stamp - init_stamp).seconds() < cool_time_duration || prev_stamp == rclcpp::Time((int64_t)0, prev_stamp.get_clock_type()) || prev_stamp == stamp) {
+  if ((stamp - init_stamp).seconds() < cool_time_duration ||
+      prev_stamp == rclcpp::Time((int64_t)0, prev_stamp.get_clock_type()) || prev_stamp == stamp) {
     prev_stamp = stamp;
     return;
   }
@@ -77,7 +79,8 @@ void PoseEstimator::predict(const rclcpp::Time& stamp) {
  * @param gyro     angular velocity
  */
 void PoseEstimator::predict(const rclcpp::Time& stamp, const Eigen::Vector3f& acc, const Eigen::Vector3f& gyro) {
-  if ((stamp - init_stamp).seconds() < cool_time_duration || prev_stamp == rclcpp::Time((int64_t)0, prev_stamp.get_clock_type()) || prev_stamp == stamp) {
+  if ((stamp - init_stamp).seconds() < cool_time_duration ||
+      prev_stamp == rclcpp::Time((int64_t)0, prev_stamp.get_clock_type()) || prev_stamp == stamp) {
     prev_stamp = stamp;
     return;
   }
@@ -99,7 +102,7 @@ void PoseEstimator::predict(const rclcpp::Time& stamp, const Eigen::Vector3f& ac
  * @brief update the state of the odomety-based pose estimation
  */
 void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
-  if(!odom_ukf) {
+  if (!odom_ukf) {
     Eigen::MatrixXf odom_process_noise = Eigen::MatrixXf::Identity(7, 7);
     Eigen::MatrixXf odom_measurement_noise = Eigen::MatrixXf::Identity(7, 7) * 1e-3;
 
@@ -109,12 +112,13 @@ void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
     Eigen::MatrixXf odom_cov = Eigen::MatrixXf::Identity(7, 7) * 1e-2;
 
     OdomSystem odom_system;
-    odom_ukf.reset(new kkl::alg::UnscentedKalmanFilterX<float, OdomSystem>(odom_system, 7, 7, 7, odom_process_noise, odom_measurement_noise, odom_mean, odom_cov));
+    odom_ukf.reset(new kkl::alg::UnscentedKalmanFilterX<float, OdomSystem>(
+        odom_system, 7, 7, 7, odom_process_noise, odom_measurement_noise, odom_mean, odom_cov));
   }
 
   // invert quaternion if the rotation axis is flipped
   Eigen::Quaternionf quat(odom_delta.block<3, 3>(0, 0));
-  if(odom_quat().coeffs().dot(quat.coeffs()) < 0.0) {
+  if (odom_quat().coeffs().dot(quat.coeffs()) < 0.0) {
     quat.coeffs() *= -1.0f;
   }
 
@@ -123,8 +127,10 @@ void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
   control.middleRows(3, 4) = Eigen::Vector4f(quat.w(), quat.x(), quat.y(), quat.z());
 
   Eigen::MatrixXf process_noise = Eigen::MatrixXf::Identity(7, 7);
-  process_noise.topLeftCorner(3, 3) = Eigen::Matrix3f::Identity() * odom_delta.block<3, 1>(0, 3).norm() + Eigen::Matrix3f::Identity() * 1e-3;
-  process_noise.bottomRightCorner(4, 4) = Eigen::Matrix4f::Identity() * (1 - std::abs(quat.w())) + Eigen::Matrix4f::Identity() * 1e-3;
+  process_noise.topLeftCorner(3, 3) =
+      Eigen::Matrix3f::Identity() * odom_delta.block<3, 1>(0, 3).norm() + Eigen::Matrix3f::Identity() * 1e-3;
+  process_noise.bottomRightCorner(4, 4) =
+      Eigen::Matrix4f::Identity() * (1 - std::abs(quat.w())) + Eigen::Matrix4f::Identity() * 1e-3;
 
   odom_ukf->setProcessNoiseCov(process_noise);
   odom_ukf->predict(control);
@@ -135,7 +141,8 @@ void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
  * @param cloud   input cloud
  * @return cloud aligned to the globalmap
  */
-pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp::Time& stamp,
+                                                                   const pcl::PointCloud<PointT>::ConstPtr& cloud) {
   last_correction_stamp = stamp;
 
   Eigen::Matrix4f no_guess = last_observation;
@@ -143,7 +150,7 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
   Eigen::Matrix4f odom_guess;
   Eigen::Matrix4f init_guess = Eigen::Matrix4f::Identity();
 
-  if(!odom_ukf) {
+  if (!odom_ukf) {
     init_guess = imu_guess = matrix();
   } else {
     imu_guess = matrix();
@@ -173,7 +180,8 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
     Eigen::VectorXf fused_mean = fused_cov * inv_imu_cov * imu_mean + fused_cov * inv_odom_cov * odom_mean;
 
     init_guess.block<3, 1>(0, 3) = Eigen::Vector3f(fused_mean[0], fused_mean[1], fused_mean[2]);
-    init_guess.block<3, 3>(0, 0) = Eigen::Quaternionf(fused_mean[3], fused_mean[4], fused_mean[5], fused_mean[6]).normalized().toRotationMatrix();
+    init_guess.block<3, 3>(0, 0) =
+        Eigen::Quaternionf(fused_mean[3], fused_mean[4], fused_mean[5], fused_mean[6]).normalized().toRotationMatrix();
   }
 
   pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
@@ -184,7 +192,7 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
   Eigen::Vector3f p = trans.block<3, 1>(0, 3);
   Eigen::Quaternionf q(trans.block<3, 3>(0, 0));
 
-  if(quat().coeffs().dot(q.coeffs()) < 0.0f) {
+  if (quat().coeffs().dot(q.coeffs()) < 0.0f) {
     q.coeffs() *= -1.0f;
   }
 
@@ -198,7 +206,7 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
   ukf->correct(observation);
   imu_pred_error = imu_guess.inverse() * registration->getFinalTransformation();
 
-  if(odom_ukf) {
+  if (odom_ukf) {
     if (observation.tail<4>().dot(odom_ukf->mean.tail<4>()) < 0.0) {
       odom_ukf->mean.tail<4>() *= -1.0;
     }
@@ -211,17 +219,11 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
 }
 
 /* getters */
-rclcpp::Time PoseEstimator::last_correction_time() const {
-  return last_correction_stamp;
-}
+rclcpp::Time PoseEstimator::last_correction_time() const { return last_correction_stamp; }
 
-Eigen::Vector3f PoseEstimator::pos() const {
-  return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], ukf->mean[2]);
-}
+Eigen::Vector3f PoseEstimator::pos() const { return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], ukf->mean[2]); }
 
-Eigen::Vector3f PoseEstimator::vel() const {
-  return Eigen::Vector3f(ukf->mean[3], ukf->mean[4], ukf->mean[5]);
-}
+Eigen::Vector3f PoseEstimator::vel() const { return Eigen::Vector3f(ukf->mean[3], ukf->mean[4], ukf->mean[5]); }
 
 Eigen::Quaternionf PoseEstimator::quat() const {
   return Eigen::Quaternionf(ukf->mean[6], ukf->mean[7], ukf->mean[8], ukf->mean[9]).normalized();
@@ -249,15 +251,9 @@ Eigen::Matrix4f PoseEstimator::odom_matrix() const {
   return m;
 }
 
-const boost::optional<Eigen::Matrix4f>& PoseEstimator::wo_prediction_error() const {
-  return wo_pred_error;
-}
+const boost::optional<Eigen::Matrix4f>& PoseEstimator::wo_prediction_error() const { return wo_pred_error; }
 
-const boost::optional<Eigen::Matrix4f>& PoseEstimator::imu_prediction_error() const {
-  return imu_pred_error;
-}
+const boost::optional<Eigen::Matrix4f>& PoseEstimator::imu_prediction_error() const { return imu_pred_error; }
 
-const boost::optional<Eigen::Matrix4f>& PoseEstimator::odom_prediction_error() const {
-  return odom_pred_error;
-}
-}
+const boost::optional<Eigen::Matrix4f>& PoseEstimator::odom_prediction_error() const { return odom_pred_error; }
+}  // namespace hdl_localization

@@ -6,22 +6,23 @@
 #ifndef KKL_UNSCENTED_KALMAN_FILTER_X_HPP
 #define KKL_UNSCENTED_KALMAN_FILTER_X_HPP
 
-#include <random>
 #include <Eigen/Dense>
+#include <random>
 
 namespace kkl {
-  namespace alg {
+namespace alg {
 
 /**
  * @brief Unscented Kalman Filter class
  * @param T        scaler type
  * @param System   system class to be estimated
  */
-template<typename T, class System>
+template <typename T, class System>
 class UnscentedKalmanFilterX {
   typedef Eigen::Matrix<T, Eigen::Dynamic, 1> VectorXt;
   typedef Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> MatrixXt;
-public:
+
+ public:
   /**
    * @brief constructor
    * @param system               system to be estimated
@@ -33,22 +34,23 @@ public:
    * @param mean                 initial mean
    * @param cov                  initial covariance
    */
-  UnscentedKalmanFilterX(const System& system, int state_dim, int input_dim, int measurement_dim, const MatrixXt& process_noise, const MatrixXt& measurement_noise, const VectorXt& mean, const MatrixXt& cov)
-    : state_dim(state_dim),
-    input_dim(input_dim),
-    measurement_dim(measurement_dim),
-    N(state_dim),
-    M(input_dim),
-    K(measurement_dim),
-    S(2 * state_dim + 1),
-    mean(mean),
-    cov(cov),
-    system(system),
-    process_noise(process_noise),
-    measurement_noise(measurement_noise),
-    lambda(1),
-    normal_dist(0.0, 1.0)
-  {
+  UnscentedKalmanFilterX(const System& system, int state_dim, int input_dim, int measurement_dim,
+                         const MatrixXt& process_noise, const MatrixXt& measurement_noise, const VectorXt& mean,
+                         const MatrixXt& cov)
+      : state_dim(state_dim),
+        input_dim(input_dim),
+        measurement_dim(measurement_dim),
+        N(state_dim),
+        M(input_dim),
+        K(measurement_dim),
+        S(2 * state_dim + 1),
+        mean(mean),
+        cov(cov),
+        system(system),
+        process_noise(process_noise),
+        measurement_noise(measurement_noise),
+        lambda(1),
+        normal_dist(0.0, 1.0) {
     weights.resize(S, 1);
     sigma_points.resize(S, N);
     ext_weights.resize(2 * (N + K) + 1, 1);
@@ -197,14 +199,26 @@ public:
   const MatrixXt& getKalmanGain() const { return kalman_gain; }
 
   /*			setter			*/
-  UnscentedKalmanFilterX& setMean(const VectorXt& m) { mean = m;			return *this; }
-  UnscentedKalmanFilterX& setCov(const MatrixXt& s) { cov = s;			return *this; }
+  UnscentedKalmanFilterX& setMean(const VectorXt& m) {
+    mean = m;
+    return *this;
+  }
+  UnscentedKalmanFilterX& setCov(const MatrixXt& s) {
+    cov = s;
+    return *this;
+  }
 
-  UnscentedKalmanFilterX& setProcessNoiseCov(const MatrixXt& p) { process_noise = p;			return *this; }
-  UnscentedKalmanFilterX& setMeasurementNoiseCov(const MatrixXt& m) { measurement_noise = m;	return *this; }
+  UnscentedKalmanFilterX& setProcessNoiseCov(const MatrixXt& p) {
+    process_noise = p;
+    return *this;
+  }
+  UnscentedKalmanFilterX& setMeasurementNoiseCov(const MatrixXt& m) {
+    measurement_noise = m;
+    return *this;
+  }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-private:
+ private:
   const int state_dim;
   const int input_dim;
   const int measurement_dim;
@@ -214,13 +228,13 @@ private:
   const int K;
   const int S;
 
-public:
+ public:
   VectorXt mean;
   MatrixXt cov;
 
   System system;
-  MatrixXt process_noise;		//
-  MatrixXt measurement_noise;	//
+  MatrixXt process_noise;      //
+  MatrixXt measurement_noise;  //
 
   T lambda;
   VectorXt weights;
@@ -231,7 +245,7 @@ public:
   MatrixXt ext_sigma_points;
   MatrixXt expected_measurements;
 
-private:
+ private:
   /**
    * @brief compute sigma points
    * @param mean          mean
@@ -273,15 +287,14 @@ private:
     cov = V * D * V.inverse();
   }
 
-public:
+ public:
   MatrixXt kalman_gain;
 
   std::mt19937 mt;
   std::normal_distribution<T> normal_dist;
 };
 
-  }
-}
-
+}  // namespace alg
+}  // namespace kkl
 
 #endif

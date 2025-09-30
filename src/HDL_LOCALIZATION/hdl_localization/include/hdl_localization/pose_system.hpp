@@ -7,19 +7,19 @@ namespace hdl_localization {
 
 /**
  * @brief Definition of system to be estimated by ukf
- * @note state = [px, py, pz, vx, vy, vz, qw, qx, qy, qz, acc_bias_x, acc_bias_y, acc_bias_z, gyro_bias_x, gyro_bias_y, gyro_bias_z]
+ * @note state = [px, py, pz, vx, vy, vz, qw, qx, qy, qz, acc_bias_x, acc_bias_y, acc_bias_z, gyro_bias_x, gyro_bias_y,
+ * gyro_bias_z]
  */
 class PoseSystem {
-public:
+ public:
   typedef float T;
   typedef Eigen::Matrix<T, 3, 1> Vector3t;
   typedef Eigen::Matrix<T, 4, 4> Matrix4t;
   typedef Eigen::Matrix<T, Eigen::Dynamic, 1> VectorXt;
   typedef Eigen::Quaternion<T> Quaterniont;
-public:
-  PoseSystem() {
-    dt = 0.01;
-  }
+
+ public:
+  PoseSystem() { dt = 0.01; }
 
   // system equation (without input)
   VectorXt f(const VectorXt& state) const {
@@ -72,7 +72,8 @@ public:
     Vector3t acc_ = raw_acc - acc_bias;
     Vector3t acc = qt * acc_;
     next_state.middleRows(3, 3) = vt + (acc - g) * dt;
-    // next_state.middleRows(3, 3) = vt; // + (acc - g) * dt;		// acceleration didn't contribute to accuracy due to large noise
+    // next_state.middleRows(3, 3) = vt; // + (acc - g) * dt;		// acceleration didn't contribute to accuracy
+    // due to large noise
 
     // orientation
     Vector3t gyro = raw_gyro - gyro_bias;
@@ -99,6 +100,6 @@ public:
   double dt;
 };
 
-}
+}  // namespace hdl_localization
 
-#endif // POSE_SYSTEM_HPP
+#endif  // POSE_SYSTEM_HPP

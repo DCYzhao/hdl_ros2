@@ -1,18 +1,19 @@
 #ifndef HDL_LOCALIZATION_DELTA_ESTIMATER_HPP
 #define HDL_LOCALIZATION_DELTA_ESTIMATER_HPP
 
-#include <mutex>
-#include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include <pcl/registration/registration.h>
+
+#include <mutex>
 
 namespace hdl_localization {
 
 class DeltaEstimater {
-public:
+ public:
   using PointT = pcl::PointXYZI;
 
-  DeltaEstimater(pcl::Registration<PointT, PointT>::Ptr reg): delta(Eigen::Isometry3f::Identity()), reg(reg) {}
+  DeltaEstimater(pcl::Registration<PointT, PointT>::Ptr reg) : delta(Eigen::Isometry3f::Identity()), reg(reg) {}
   ~DeltaEstimater() {}
 
   void reset() {
@@ -45,7 +46,7 @@ public:
     return delta;
   }
 
-private:
+ private:
   mutable std::mutex mutex;
   Eigen::Isometry3f delta;
   pcl::Registration<PointT, PointT>::Ptr reg;
@@ -53,7 +54,6 @@ private:
   pcl::PointCloud<PointT>::ConstPtr last_frame;
 };
 
-} // namespace hdl_localization
-
+}  // namespace hdl_localization
 
 #endif
