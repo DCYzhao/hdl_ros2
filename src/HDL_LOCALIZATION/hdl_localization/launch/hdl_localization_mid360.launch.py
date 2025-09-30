@@ -1,0 +1,132 @@
+#############################################################################
+
+from launch import LaunchDescription
+from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition
+
+import launch_ros.actions
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+
+from ament_index_python.packages import get_package_share_directory
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.actions import Node
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+
+# from launch_ros.parameters import declare_parameter
+
+def generate_launch_description():
+    # arguments
+    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+
+    points_topic = LaunchConfiguration('points_topic', default='/livox/lidar')
+    odom_child_frame_id = LaunchConfiguration('odom_child_frame_id', default='base_link')
+   
+    # optional arguments
+    use_imu = LaunchConfiguration('use_imu', default='true')
+    imu_topic = LaunchConfiguration('imu_topic', default='/livox/imu')
+    invert_imu_acc = LaunchConfiguration('invert_imu_acc', default='false')
+    invert_imu_gyro = LaunchConfiguration('invert_imu_gyro', default='false')
+    use_global_localization = LaunchConfiguration('use_global_localization', default='false')
+    enable_robot_odometry_prediction = LaunchConfiguration('enable_robot_odometry_prediction', default='false')
+    robot_odom_frame_id = LaunchConfiguration('robot_odom_frame_id', default='odom')
+    plot_estimation_errors = LaunchConfiguration('plot_estimation_errors', default='false')
+
+    # RViz2相关参数
+    launch_rviz = LaunchConfiguration('launch_rviz', default='true')
+    rviz_config = LaunchConfiguration('rviz_config', default=get_package_share_directory('hdl_localization') + '/rviz/hdl_localization_ros2.rviz')
+    
+    # 声明RViz2参数
+    declare_launch_rviz_arg = DeclareLaunchArgument(
+        'launch_rviz',
+        default_value='true',
+        description='Whether to launch RViz2'
+    )
+    
+    declare_rviz_config_arg = DeclareLaunchArgument(
+        'rviz_config',
+        default_value=rviz_config,
+        description='Path to RViz config file'
+    )
+    # include hdl_global_localization launch file
+    # hdl_global_localization_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource([get_package_share_directory('hdl_global_localization'), '/launch/hdl_global_localization.launch.py']),
+    #     # condition=IfCondition(use_global_localization),
+    # )
+
+    # # nodelet manager
+    lidar_tf = Node(
+        name='lidar_tf',
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        arguments=['0.0', '0.0', '0.0', '0', '0',
+                   '0', '1', 'base_link', 'laser_link']
+    )
+
+    container = ComposableNodeContainer(
+        name='container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container',
+        composable_node_descriptions=[
+            ComposableNode(
+                package='hdl_localization',
+                plugin='hdl_localization::GlobalmapServerNodelet',
+                name='GlobalmapServerNodelet',
+                parameters=[
+                    {'globalmap_pcd': '/home/zdc/PCD/xiaohushi.pcd'},
+                    {'convert_utm_to_local': True},
+                    {'downsample_resolution': 0.1}]),
+            ComposableNode(
+                package='hdl_localization',
+                plugin='hdl_localization::HdlLocalizationNodelet',
+                name='HdlLocalizationNodelet',
+                parameters=[
+                    {'odom_child_frame_id': odom_child_frame_id},
+                    {'points_topic': points_topic},
+                    {'imu_topic': imu_topic},
+                    {'use_imu': use_imu},
+                    {'invert_acc': invert_imu_acc},
+                    {'invert_gyro': invert_imu_gyro},
+                    {'cool_time_duration': 2.0},
+                    {'enable_robot_odometry_prediction': enable_robot_odometry_prediction},
+                    {'robot_odom_frame_id': robot_odom_frame_id},
+                    # <!-- available reg_methods: NDT_OMP, NDT_CUDA_P2D, NDT_CUDA_D2D-->
+                    {'reg_method': 'NDT_OMP'},
+                    {'ndt_neighbor_search_method': 'DIRECT7'},
+                    {'ndt_neighbor_search_radius': 1.0},
+                    {'ndt_resolution': 0.5},
+                    {'downsample_resolution': 0.1},
+                    {'specify_init_pose': True},
+                    {'init_pos_x': 0.0},
+                    {'init_pos_y': 0.0},
+                    {'init_pos_z': 0.0},
+                    {'init_ori_w': 1.0},
+                    {'init_ori_x': 0.0},
+                    {'init_ori_y': 0.0},
+                    {'init_ori_z': 0.0},
+                    {'use_global_localization': use_global_localization}])
+        ],
+        output='screen',   
+    )
+
+    # RViz2节点
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config],
+        condition=IfCondition(launch_rviz),
+        output='screen'
+    )
+
+    return LaunchDescription([
+        launch_ros.actions.SetParameter(name='use_sim_time', value=True),
+        declare_launch_rviz_arg,
+        declare_rviz_config_arg,
+        lidar_tf, 
+        container, 
+        rviz_node
+    ])
+
+

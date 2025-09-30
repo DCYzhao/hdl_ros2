@@ -1,0 +1,5 @@
+BasedOnStyle:  Google
+ColumnLimit:    120
+IndentWidth:     2
+DisableFormat:	false  # 是否关闭格式化
+AlignAfterOpenBracket:	Align
