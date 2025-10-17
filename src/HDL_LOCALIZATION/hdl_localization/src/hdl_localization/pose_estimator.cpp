@@ -24,9 +24,9 @@ PoseEstimator::PoseEstimator(pcl::Registration<PointT, PointT>::Ptr& registratio
   last_observation.block<3, 1>(0, 3) = pos;
 
   process_noise = Eigen::MatrixXf::Identity(16, 16);
-  process_noise.middleRows(0, 3) *= 1.0;
-  process_noise.middleRows(3, 3) *= 1.0;
-  process_noise.middleRows(6, 4) *= 0.5;
+  process_noise.middleRows(0, 3) *= 0.5;
+  process_noise.middleRows(3, 3) *= 0.5;
+  process_noise.middleRows(6, 4) *= 0.1;
   process_noise.middleRows(10, 3) *= 1e-6;
   process_noise.middleRows(13, 3) *= 1e-6;
 
@@ -79,6 +79,14 @@ void PoseEstimator::predict(const rclcpp::Time& stamp) {
  * @param gyro     angular velocity
  */
 void PoseEstimator::predict(const rclcpp::Time& stamp, const Eigen::Vector3f& acc, const Eigen::Vector3f& gyro) {
+  // 添加预测频率控制
+  static rclcpp::Time last_predict_time = stamp;
+  double predict_interval = 0.01;  // 100Hz
+
+  if ((stamp - last_predict_time).seconds() < predict_interval) {
+    return;
+  }
+
   if ((stamp - init_stamp).seconds() < cool_time_duration ||
       prev_stamp == rclcpp::Time((int64_t)0, prev_stamp.get_clock_type()) || prev_stamp == stamp) {
     prev_stamp = stamp;
@@ -90,12 +98,15 @@ void PoseEstimator::predict(const rclcpp::Time& stamp, const Eigen::Vector3f& ac
 
   ukf->setProcessNoiseCov(process_noise * dt);
   ukf->system.dt = dt;
+  // std::count << " dt" << std::endl;
+  RCLCPP_INFO(rclcpp::get_logger("PoseEstimator"), "Predict (with IMU) - dt: %.6f seconds", dt);
 
   Eigen::VectorXf control(6);
   control.head<3>() = acc;
   control.tail<3>() = gyro;
 
   ukf->predict(control);
+  last_predict_time = stamp;
 }
 
 /**
@@ -143,6 +154,13 @@ void PoseEstimator::predict_odom(const Eigen::Matrix4f& odom_delta) {
  */
 pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp::Time& stamp,
                                                                    const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  // add 点云降采样 体素滤波降采样
+  pcl::VoxelGrid<PointT> voxel_grid;
+  voxel_grid.setLeafSize(0.1f, 0.1f, 0.1f);  // 根据实际情况调整
+  voxel_grid.setInputCloud(cloud);
+  pcl::PointCloud<PointT>::Ptr filtered_cloud(new pcl::PointCloud<PointT>());
+  voxel_grid.filter(*filtered_cloud);
+
   last_correction_stamp = stamp;
 
   Eigen::Matrix4f no_guess = last_observation;
@@ -185,8 +203,10 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
   }
 
   pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
-  registration->setInputSource(cloud);
+  // registration->setInputSource(cloud);
+  registration->setInputSource(filtered_cloud);  // 使用降采样的点云
   registration->align(*aligned, init_guess);
+  fitness_score = registration->getFitnessScore();  // add 得分
 
   Eigen::Matrix4f trans = registration->getFinalTransformation();
   Eigen::Vector3f p = trans.block<3, 1>(0, 3);
@@ -220,6 +240,8 @@ pcl::PointCloud<PoseEstimator::PointT>::Ptr PoseEstimator::correct(const rclcpp:
 
 /* getters */
 rclcpp::Time PoseEstimator::last_correction_time() const { return last_correction_stamp; }
+
+double PoseEstimator::getScore() const { return fitness_score; }
 
 Eigen::Vector3f PoseEstimator::pos() const { return Eigen::Vector3f(ukf->mean[0], ukf->mean[1], ukf->mean[2]); }
 

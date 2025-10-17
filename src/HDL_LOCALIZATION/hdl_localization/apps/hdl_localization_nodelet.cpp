@@ -233,7 +233,10 @@ class HdlLocalizationNodelet : public rclcpp::Node {
       std::lock_guard<std::mutex> lock(imu_data_mutex);
       auto imu_iter = imu_data.begin();
       for (imu_iter; imu_iter != imu_data.end(); imu_iter++) {
-        if (rclcpp::Time(stamp) < rclcpp::Time((*imu_iter)->header.stamp)) {
+        rclcpp::Time current_time(stamp);
+        rclcpp::Time imu_time((*imu_iter)->header.stamp);
+
+        if (current_time < imu_time) {
           break;
         }
         const auto& acc = (*imu_iter)->linear_acceleration;
@@ -273,6 +276,9 @@ class HdlLocalizationNodelet : public rclcpp::Node {
 
     // correct
     auto aligned = pose_estimator->correct(stamp, filtered);
+    // 匹配得分计算，得分越小配准对齐越好。
+    auto fitness_score = pose_estimator->getScore();
+    // RCLCPP_INFO(get_logger(),"get ndt align fitness score %f",fitness_score);
 
     if (aligned_pub->get_subscription_count()) {
       aligned->header.frame_id = "map";
@@ -561,5 +567,5 @@ class HdlLocalizationNodelet : public rclcpp::Node {
 };
 }  // namespace hdl_localization
 
-#include "rclcpp_components/register_node_macro.hpp"
+#include <rclcpp_components/register_node_macro.hpp>
 RCLCPP_COMPONENTS_REGISTER_NODE(hdl_localization::HdlLocalizationNodelet)

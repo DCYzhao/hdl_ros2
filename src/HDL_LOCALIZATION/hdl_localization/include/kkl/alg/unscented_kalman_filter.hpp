@@ -25,14 +25,14 @@ class UnscentedKalmanFilterX {
  public:
   /**
    * @brief constructor
-   * @param system               system to be estimated
-   * @param state_dim            state vector dimension
-   * @param input_dim            input vector dimension
-   * @param measurement_dim      measurement vector dimension
-   * @param process_noise        process noise covariance (state_dim x state_dim)
-   * @param measurement_noise    measurement noise covariance (measurement_dim x measuremend_dim)
-   * @param mean                 initial mean
-   * @param cov                  initial covariance
+   * @param system               system to be estimated 系统模型
+   * @param state_dim            state vector dimension 状态向量维度 N
+   * @param input_dim            input vector dimension 输入向量维度 M
+   * @param measurement_dim      measurement vector dimension 测量向量维度 K
+   * @param process_noise        process noise covariance (state_dim x state_dim) 过程噪声协方差矩阵
+   * @param measurement_noise    measurement noise covariance (measurement_dim x measuremend_dim) 测量噪声协方差矩阵
+   * @param mean                 initial mean 初始状态均值
+   * @param cov                  initial covariance  初始状态协方差矩阵
    */
   UnscentedKalmanFilterX(const System& system, int state_dim, int input_dim, int measurement_dim,
                          const MatrixXt& process_noise, const MatrixXt& measurement_noise, const VectorXt& mean,
@@ -43,10 +43,10 @@ class UnscentedKalmanFilterX {
         N(state_dim),
         M(input_dim),
         K(measurement_dim),
-        S(2 * state_dim + 1),
-        mean(mean),
-        cov(cov),
-        system(system),
+        S(2 * state_dim + 1),  // Sigma点的数量 2N+1
+        mean(mean),            // 当前状态均值向量
+        cov(cov),              // 当前状态协方差矩阵
+        system(system),        // 包含了状态方程和观测方程
         process_noise(process_noise),
         measurement_noise(measurement_noise),
         lambda(1),
@@ -55,7 +55,7 @@ class UnscentedKalmanFilterX {
     sigma_points.resize(S, N);
     ext_weights.resize(2 * (N + K) + 1, 1);
     ext_sigma_points.resize(2 * (N + K) + 1, N + K);
-    expected_measurements.resize(2 * (N + K) + 1, K);
+    expected_measurements.resize(2 * (N + K) + 1, K);  // 用于存储期望的观测值
 
     // initialize weights for unscented filter
     weights[0] = lambda / (N + lambda);
@@ -108,21 +108,21 @@ class UnscentedKalmanFilterX {
    * @param control  input vector
    */
   void predict(const VectorXt& control) {
-    // calculate sigma points
+    // calculate sigma points 根据上次均值和协方差计算sigma_points
     ensurePositiveFinite(cov);
     computeSigmaPoints(mean, cov, sigma_points);
+    // sigma_points更新。用在posesystem中定义的f函数来进行。
     for (int i = 0; i < S; i++) {
       sigma_points.row(i) = system.f(sigma_points.row(i), control);
     }
 
+    // 过程噪声，即ukf中的矩阵R
     const auto& R = process_noise;
 
-    // unscented transform
-    VectorXt mean_pred(mean.size());
-    MatrixXt cov_pred(cov.rows(), cov.cols());
-
-    mean_pred.setZero();
-    cov_pred.setZero();
+    // unscented transform 定义当前的平均状态和协方差矩阵，并设置为0矩阵
+    VectorXt mean_pred = VectorXt::Zero(mean.size());
+    MatrixXt cov_pred = MatrixXt::Zero(cov.rows(), cov.cols());
+    // 加权平均，预测状态
     for (int i = 0; i < S; i++) {
       mean_pred += weights[i] * sigma_points.row(i);
     }
@@ -141,11 +141,12 @@ class UnscentedKalmanFilterX {
    * @param measurement  measurement vector
    */
   void correct(const VectorXt& measurement) {
+    // N-状态方程维度。K-观测维度
     // create extended state space which includes error variances
     VectorXt ext_mean_pred = VectorXt::Zero(N + K, 1);
     MatrixXt ext_cov_pred = MatrixXt::Zero(N + K, N + K);
-    ext_mean_pred.topLeftCorner(N, 1) = VectorXt(mean);
-    ext_cov_pred.topLeftCorner(N, N) = MatrixXt(cov);
+    ext_mean_pred.topLeftCorner(N, 1) = mean;
+    ext_cov_pred.topLeftCorner(N, N) = cov;
     ext_cov_pred.bottomRightCorner(K, K) = measurement_noise;
 
     ensurePositiveFinite(ext_cov_pred);
@@ -157,7 +158,6 @@ class UnscentedKalmanFilterX {
       expected_measurements.row(i) = system.h(ext_sigma_points.row(i).transpose().topLeftCorner(N, 1));
       expected_measurements.row(i) += VectorXt(ext_sigma_points.row(i).transpose().bottomRightCorner(K, 1));
     }
-
     VectorXt expected_measurement_mean = VectorXt::Zero(K);
     for (int i = 0; i < ext_sigma_points.rows(); i++) {
       expected_measurement_mean += ext_weights[i] * expected_measurements.row(i);
@@ -171,16 +171,16 @@ class UnscentedKalmanFilterX {
     // calculated transformed covariance
     MatrixXt sigma = MatrixXt::Zero(N + K, K);
     for (int i = 0; i < ext_sigma_points.rows(); i++) {
-      auto diffA = (ext_sigma_points.row(i).transpose() - ext_mean_pred);
-      auto diffB = (expected_measurements.row(i).transpose() - expected_measurement_mean);
+      VectorXt diffA = (ext_sigma_points.row(i).transpose() - ext_mean_pred);
+      VectorXt diffB = (expected_measurements.row(i).transpose() - expected_measurement_mean);
       sigma += ext_weights[i] * (diffA * diffB.transpose());
     }
-
+    // Compute Kalman gain
     kalman_gain = sigma * expected_measurement_cov.inverse();
-    const auto& K = kalman_gain;
 
-    VectorXt ext_mean = ext_mean_pred + K * (measurement - expected_measurement_mean);
-    MatrixXt ext_cov = ext_cov_pred - K * expected_measurement_cov * K.transpose();
+    // Update extended mean and covariance
+    VectorXt ext_mean = ext_mean_pred + kalman_gain * (measurement - expected_measurement_mean);
+    MatrixXt ext_cov = ext_cov_pred - kalman_gain * expected_measurement_cov * kalman_gain.transpose();
 
     mean = ext_mean.topLeftCorner(N, 1);
     cov = ext_cov.topLeftCorner(N, N);
@@ -255,15 +255,19 @@ class UnscentedKalmanFilterX {
   void computeSigmaPoints(const VectorXt& mean, const MatrixXt& cov, MatrixXt& sigma_points) {
     const int n = mean.size();
     assert(cov.rows() == n && cov.cols() == n);
+    assert(sigma_points.rows() == 2 * n + 1 && sigma_points.cols() == n);
+    // 1. 合并协方差缩放与分解，避免重复计算
+    const double scale_factor = n + lambda;
+    Eigen::LLT<MatrixXt> llt(scale_factor * cov);
+    // 2. 直接引用分解结果的矩阵L，避免拷贝
+    const MatrixXt& L = llt.matrixL();
 
-    Eigen::LLT<MatrixXt> llt;
-    llt.compute((n + lambda) * cov);
-    MatrixXt l = llt.matrixL();
-
+    // 3. 优化Sigma点生成：利用列优先存储和块操作
     sigma_points.row(0) = mean;
-    for (int i = 0; i < n; i++) {
-      sigma_points.row(1 + i * 2) = mean + l.col(i);
-      sigma_points.row(1 + i * 2 + 1) = mean - l.col(i);
+    for (int i = 0; i < n; ++i) {
+      const VectorXt col = L.col(i);
+      sigma_points.row(1 + 2 * i) = mean + col;
+      sigma_points.row(2 + 2 * i) = mean - col;
     }
   }
 

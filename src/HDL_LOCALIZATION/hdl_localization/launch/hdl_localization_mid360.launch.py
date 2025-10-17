@@ -23,7 +23,7 @@ def generate_launch_description():
     odom_child_frame_id = LaunchConfiguration('odom_child_frame_id', default='base_link')
    
     # optional arguments
-    use_imu = LaunchConfiguration('use_imu', default='true')
+    use_imu = LaunchConfiguration('use_imu', default='false')
     imu_topic = LaunchConfiguration('imu_topic', default='/livox/imu')
     invert_imu_acc = LaunchConfiguration('invert_imu_acc', default='false')
     invert_imu_gyro = LaunchConfiguration('invert_imu_gyro', default='false')
@@ -60,11 +60,11 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         arguments=['0.0', '0.0', '0.0', '0', '0',
-                   '0', '1', 'base_link', 'laser_link']
+                   '0', '1', 'base_link', 'livox_frame'] # livox_frame
     )
 
     container = ComposableNodeContainer(
-        name='container',
+        name='ndt',
         namespace='',
         package='rclcpp_components',
         executable='component_container',
@@ -74,7 +74,7 @@ def generate_launch_description():
                 plugin='hdl_localization::GlobalmapServerNodelet',
                 name='GlobalmapServerNodelet',
                 parameters=[
-                    {'globalmap_pcd': '/home/zdc/PCD/xiaohushi.pcd'},
+                    {'globalmap_pcd': '/home/zdc/PCD/test.pcd'},
                     {'convert_utm_to_local': True},
                     {'downsample_resolution': 0.1}]),
             ComposableNode(
@@ -95,7 +95,7 @@ def generate_launch_description():
                     {'reg_method': 'NDT_OMP'},
                     {'ndt_neighbor_search_method': 'DIRECT7'},
                     {'ndt_neighbor_search_radius': 1.0},
-                    {'ndt_resolution': 0.5},
+                    {'ndt_resolution': 1.0},
                     {'downsample_resolution': 0.1},
                     {'specify_init_pose': True},
                     {'init_pos_x': 0.0},

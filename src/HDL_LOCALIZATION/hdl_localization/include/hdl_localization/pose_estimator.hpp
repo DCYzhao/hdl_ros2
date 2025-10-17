@@ -68,7 +68,7 @@ public:
 
   /* getters */
   rclcpp::Time last_correction_time() const;
-
+  double getScore() const;
   Eigen::Vector3f pos() const;
   Eigen::Vector3f vel() const;
   Eigen::Quaternionf quat() const;
@@ -87,6 +87,7 @@ private:
   rclcpp::Time prev_stamp;             // when the estimator was updated last time
   rclcpp::Time last_correction_stamp;  // when the estimator performed the correction step
   double cool_time_duration;        //
+  double fitness_score;
 
   Eigen::MatrixXf process_noise;
   std::unique_ptr<kkl::alg::UnscentedKalmanFilterX<float, PoseSystem>> ukf;
